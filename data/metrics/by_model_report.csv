@@ -1,0 +1,2 @@
+model_artifact,tests,accuracy
+LightGBM_optimized_model.pkl,4,1.0
