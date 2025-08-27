@@ -12,9 +12,8 @@ from sqlalchemy import create_engine
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 
-# sorgenti possibili dei feedback (prima provo quello nuovo)
+# sorgente UNICA dei feedback
 FEEDBACK_NEW = DATA_DIR / "feedback_test.csv"
-FEEDBACK_OLD = DATA_DIR / "training_feedback.csv"
 
 # tabella di destinazione nel DB
 TABLE_NAME = "feedback_gold"
@@ -36,18 +35,12 @@ def get_engine():
     return create_engine(url, pool_pre_ping=True)
 
 def load_feedback_csv() -> pd.DataFrame:
-    """Carica il CSV dei feedback (prima prova quello nuovo)."""
-    if FEEDBACK_NEW.exists():
-        path = FEEDBACK_NEW
-    elif FEEDBACK_OLD.exists():
-        path = FEEDBACK_OLD
-        print(f"[avviso] Uso il vecchio CSV: {path.name}")
-    else:
-        raise FileNotFoundError("Non trovo né feedback_test.csv né training_feedback.csv in /data")
-
-    df = pd.read_csv(path)
+    """Carica il CSV dei feedback (usa solo feedback_test.csv)."""
+    if not FEEDBACK_NEW.exists():
+        raise FileNotFoundError("Non trovo data/feedback_test.csv")
+    df = pd.read_csv(FEEDBACK_NEW)
     if df.empty:
-        raise ValueError(f"{path.name} è vuoto.")
+        raise ValueError(f"{FEEDBACK_NEW.name} è vuoto.")
     return df
 
 def build_gold(df_fb: pd.DataFrame) -> pd.DataFrame:
@@ -73,7 +66,7 @@ def build_gold(df_fb: pd.DataFrame) -> pd.DataFrame:
     for c in FEATURE_COLS:
         gold[c] = pd.to_numeric(gold[c], errors="ignore")
 
-    # dedup all'interno del batch corrente (nel DB puoi mettere una UNIQUE se vuoi evitare duplicati globali)
+    # dedup all'interno del batch corrente
     gold = gold.drop_duplicates().reset_index(drop=True)
     return gold
 
@@ -87,7 +80,7 @@ def append_dataframe_to_db(df: pd.DataFrame, table_name: str, engine):
 
 def main():
     try:
-        print("[1/3] Carico feedback...")
+        print("[1/3] Carico feedback (feedback_test.csv)...")
         df_fb = load_feedback_csv()
 
         print("[2/3] Preparo righe GOLD (solo confermati corretti)...")
