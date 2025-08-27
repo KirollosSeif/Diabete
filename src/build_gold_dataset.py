@@ -1,9 +1,11 @@
+# src/push_gold_to_db.py
 # Scopo: leggere i feedback (CSV), tenere SOLO i casi confermati corretti
-#        e ACCODARLI nella tabella di training originaria: 'diabetes_data'.
-# Connessione: usa DATABASE_URL se presente, altrimenti SQL_* dal .env.
+#        e ACCODARLI alla tabella originaria di training: 'diabetes_data',
+#        evitando DUPLICATI tramite fingerprint MD5 su features+target.
 
 from pathlib import Path
 import os
+import hashlib
 import pandas as pd
 from sqlalchemy import create_engine, inspect
 from dotenv import load_dotenv
@@ -111,21 +113,62 @@ def append_dataframe_to_db(df: pd.DataFrame, table_name: str, engine):
     aligned.to_sql(name=table_name, con=engine, if_exists="append", index=False)
     return len(aligned)
 
+# ---------- anti-duplicati: fingerprint MD5 su features+target ----------
+def make_fingerprint(df: pd.DataFrame) -> pd.Series:
+    # normalizza null -> "", converte a stringa e concatena in ordine fisso
+    s = df[FEATURE_COLS].astype(object).where(
+        pd.notnull(df[FEATURE_COLS]), ""
+    ).astype(str)
+    j = s.agg("|".join, axis=1).str.encode("utf-8")
+    return j.map(lambda b: hashlib.md5(b).hexdigest())
+
+def load_existing_fingerprints(engine) -> set[str]:
+    """Carica SOLO le colonne necessarie dal DB e calcola i fingerprint in Python."""
+    # Provo a leggere dal DB solo le colonne presenti tra FEATURE_COLS
+    insp = inspect(engine)
+    cols_in_db = {c["name"] for c in insp.get_columns(DEST_TABLE)}
+    use_cols = [c for c in FEATURE_COLS if c in cols_in_db]
+    if not use_cols:
+        return set()
+    sql = f'SELECT {", ".join(use_cols)} FROM {DEST_TABLE}'
+    df_exist = pd.read_sql(sql, con=engine)
+    if df_exist.empty:
+        return set()
+    # aggiungo eventuali colonne mancanti per rispettare l'ordine completo
+    for c in FEATURE_COLS:
+        if c not in df_exist.columns:
+            df_exist[c] = pd.NA
+    df_exist = df_exist[FEATURE_COLS]
+    return set(make_fingerprint(df_exist))
+
+# ------------------------------ main ------------------------------
 def main():
     try:
-        print(f"[1/3] Carico feedback: {FEEDBACK_NEW.name} ...")
+        print(f"[1/4] Carico feedback: {FEEDBACK_NEW.name} ...")
         df_fb = load_feedback_csv()
 
-        print("[2/3] Preparo righe GOLD (solo confermati corretti)...")
+        print("[2/4] Preparo righe GOLD (solo confermati corretti)...")
         gold = build_gold(df_fb)
-        print(f"  -> Righe pronte da inserire: {len(gold)}")
+        print(f"  -> Righe pronte (batch): {len(gold)}")
 
-        print(f"[3/3] Connessione DB e append su '{DEST_TABLE}' ...")
+        print("[3/4] Connessione DB e caricamento fingerprint esistenti...")
         engine = get_engine()
-        inserted = append_dataframe_to_db(gold, DEST_TABLE, engine)
-        print(f"FATTO: inserite {inserted} righe in tabella '{DEST_TABLE}'.")
+        existing_fp = load_existing_fingerprints(engine)
+        print(f"  -> Fingerprint già in DB: {len(existing_fp)}")
+
+        if gold.empty:
+            print("Nessun inserimento (batch vuoto).")
+            return
+
+        gold["__fp"] = make_fingerprint(gold)
+        gold_new = gold[~gold["__fp"].isin(existing_fp)].drop(columns="__fp")
+        print(f"  -> Righe davvero nuove da inserire: {len(gold_new)}")
+
+        print(f"[4/4] Append su '{DEST_TABLE}' (allineando colonne)...")
+        inserted = append_dataframe_to_db(gold_new, DEST_TABLE, engine)
+        print(f"FATTO: inserite {inserted} righe nuove in '{DEST_TABLE}'.")
         if inserted == 0:
-            print("Nessun inserimento perché non c'erano casi confermati corretti.")
+            print("Nessun inserimento perché tutti i record erano già presenti.")
     except Exception as e:
         print(f"[ERRORE] {e}")
 
