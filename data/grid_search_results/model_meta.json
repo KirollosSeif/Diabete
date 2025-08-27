@@ -1,5 +1,6 @@
 {
-  "use_scaler": true,
+  "selected": "sklearn",
+  "timestamp": "2025-08-27T22:52:47",
   "feature_order": [
     "HighBP",
     "HighChol",
@@ -23,5 +24,14 @@
     "Education",
     "Income"
   ],
-  "keras_score": 0.8514466881752014
+  "sklearn": {
+    "name": "LightGBM",
+    "val_acc": 0.8514868560447412,
+    "path": "C:\\Users\\MARTINADICORATO\\Diabete_New\\Diabete\\data\\grid_search_results\\LightGBM_optimized_model.pkl",
+    "scaler_path": ""
+  },
+  "keras": {
+    "val_acc": 0.8487274646759033,
+    "path": "C:\\Users\\MARTINADICORATO\\Diabete_New\\Diabete\\data\\grid_search_results\\best_keras_model.keras"
+  }
 }
