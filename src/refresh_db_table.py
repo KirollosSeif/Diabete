@@ -1,4 +1,3 @@
-# src/refresh_db_table.py
 import os
 from pathlib import Path
 from dotenv import load_dotenv
