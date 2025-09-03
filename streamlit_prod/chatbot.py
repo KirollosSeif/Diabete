@@ -146,7 +146,9 @@ def answer_with_rag(user_question: str, site_faq: str = "") -> str:
 
     system = (
         "Sei un assistente prudente e chiaro. Non fornisci diagnosi e inviti a consultare un medico quando serve.\n"
-        "Usa il contesto per rispondere in modo sintetico e pratico. Se non trovi risposte nel contesto, dillo."
+        "Usa il contesto per rispondere in modo sintetico e pratico. Se non trovi risposte nel contesto, dillo. \n"
+        " Non inventare risposte.\n"
+        "Quando l'utente è soddisfatto della risposta o ti saluta, rispondi con 'Felice di aiutarti!'.\n"
     )
     if site_faq:
         system += f"\n\n[FAQ Sito]\n{site_faq}"
