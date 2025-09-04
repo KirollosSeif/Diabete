@@ -11,6 +11,9 @@ import pandas as pd
 from dotenv import load_dotenv
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
+
+from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.utils.class_weight import compute_class_weight
  
 from src.model_training import (
     split_data,
@@ -108,6 +111,10 @@ def main():
  
     # 3) Split (STRATIFICATO) in train/test
     x_train, x_test, y_train, y_test = split_data(df, target_column="Diabetes_012")
+
+    classes = y_train.unique()
+    weights = compute_class_weight(class_weight="balanced", classes=classes, y=y_train)
+    class_weight = {int(c): float(w) for c, w in zip(classes, weights)}
  
     # 4) Cross-validation su più modelli (scelta algoritmo migliore)
     results, best_estimator, best_model_name = evaluate_models_cross_validation(x_train, y_train)
@@ -118,13 +125,17 @@ def main():
     #    Uso un'istanza “pulita” della stessa classe del best_estimator
     estimator_cls = best_estimator.__class__
     estimator_fresh = estimator_cls()
+    try:
+        estimator_fresh.set_params(class_weight=class_weight)
+    except Exception:
+        pass  # KNN/XGB non lo supportano, va bene così
     best_model, gs = run_grid_search(
         estimator=estimator_fresh,
         param_grid=param_grids[best_model_name],
         x_train=x_train,
         y_train=y_train,
         model_name=best_model_name,   # la nostra versione salva anche artefatti
-        cv=5,
+        cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
         scoring="accuracy",
         verbose=0,
     )
@@ -146,7 +157,8 @@ def main():
         x_tr, x_val, y_tr, y_val = train_test_split(
             x_train, y_train, test_size=0.2, random_state=42, stratify=y_train
         )
-        keras_model, val_acc = train_keras_simple(x_tr, y_tr, x_val, y_val, max_epochs=50)
+        keras_model, val_acc = train_keras_simple(x_tr, y_tr, x_val, y_val,
+                                          max_epochs=50, class_weight=class_weight)
         kr_val_acc = float(val_acc)
         print(f"Keras val acc: {kr_val_acc:.4f}")
     except Exception as e:
