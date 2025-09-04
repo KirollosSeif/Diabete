@@ -10,6 +10,7 @@ from src.data_preprocessing import (
     load_data_from_csv,
     preprocess_data,
     append_dataframe_to_db,
+    import_dataframe_to_db,  # useremo REPLACE sulla tabella nuova
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -31,19 +32,9 @@ def table_exists(engine, table_name: str) -> bool:
             ).scalar()
         )
 
-def safe_alter_float_columns(engine, table_name: str, cols: list[str]):
-    """Prova a modificare i tipi delle colonne indicate in DOUBLE.
-       Se fallisce (colonna mancante o permessi), prosegue senza bloccare il refresh."""
-    if not cols:
-        return
-    clauses = ", ".join([f"MODIFY `{c}` DOUBLE NULL" for c in cols])
-    sql = f"ALTER TABLE `{table_name}` {clauses}"
-    with engine.begin() as conn:
-        try:
-            conn.execute(text(sql))
-            print(f"Schema adeguato su `{table_name}` -> {', '.join(cols)} a DOUBLE.")
-        except Exception as e:
-            print(f"ALTER TABLE non eseguito (non necessario o permessi insufficienti): {e}")
+def count_rows(engine, table_name: str) -> int:
+    with engine.connect() as conn:
+        return int(conn.execute(text(f"SELECT COUNT(*) FROM `{table_name}`")).scalar())
 
 def main():
     # 0) ENV
@@ -76,28 +67,56 @@ def main():
     if len(df_clean) == 0:
         raise RuntimeError("DataFrame dopo preprocess è vuoto: interrompo per evitare di svuotare la tabella.")
 
-    # 3) Se la tabella esiste, adegua tipi e svuota con DELETE (no TRUNCATE)
-    exists = table_exists(engine, table_name)
-    if exists:
-        # colonne che diventano float dopo lo scaling
-        float_cols = ["BMI", "MentHlth", "PhysHlth"]
-        safe_alter_float_columns(engine, table_name, float_cols)
+    # 3) Strategia preferita: NUOVA TABELLA (evita lock sulla tabella corrente)
+    target_table = f"{table_name}_refreshed"
+    print(f"Provo a creare/aggiornare la NUOVA tabella '{target_table}' (replace).")
 
-        # Svuota
-        with engine.begin() as conn:
-            conn.execute(text(f"DELETE FROM `{table_name}`"))
-            print(f"Tabella `{table_name}` svuotata (DELETE).")
-    else:
+    created_new_table = False
+    try:
+        # REPLACE sulla NUOVA tabella: se esiste la ri-crea, altrimenti la crea.
+        import_dataframe_to_db(df_clean, target_table, engine)
+        n_new = count_rows(engine, target_table)
+        print(f"✅ Nuova tabella '{target_table}' pronta con {n_new} righe.")
+        created_new_table = True
+    except Exception as e:
+        print("❌ Creazione/replace della nuova tabella fallita. Motivo:")
+        import traceback; traceback.print_exc()
+        created_new_table = False
+
+    if created_new_table:
+        print("\n➡️ Aggiorna ora il tuo .env per usare la tabella nuova:")
+        print(f"DB_TABLE={target_table}")
+        print("Poi rilancia i tuoi script (peek_table/test) per leggere dalla nuova tabella.")
+        return
+
+    # 4) Fallback: svuota con DELETE la tabella corrente e APPEND a chunk
+    #    (niente ALTER: evitiamo lock; se il tipo non è compatibile, l'errore sarà chiaro)
+    print("\n➡️ Fallback: uso la tabella esistente (DELETE + APPEND).")
+
+    exists = table_exists(engine, table_name)
+    if not exists:
         print(f"Tabella `{table_name}` non esiste: verrà creata automaticamente da to_sql(append).")
 
-    # 4) Inserisci a chunk
-    print(f"Inserimento in `{table_name}`: {len(df_clean)} righe x {df_clean.shape[1]} colonne...")
-    append_dataframe_to_db(df_clean, table_name, engine, chunksize=2000)
+    else:
+        print(f"Svuoto la tabella esistente `{table_name}` con DELETE (no TRUNCATE).")
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(f"DELETE FROM `{table_name}`"))
+            print(f"Tabella `{table_name}` svuotata.")
+        except Exception as e:
+            print("❌ DELETE fallito sulla tabella esistente. Motivo:")
+            import traceback; traceback.print_exc()
+            raise
 
-    # 5) Verifica righe finali
-    with engine.connect() as conn:
-        n = conn.execute(text(f"SELECT COUNT(*) FROM `{table_name}`")).scalar()
-        print(f"✅ Refresh completato. Righe in `{table_name}`: {n}")
+    print(f"Inserimento in `{table_name}`: {len(df_clean)} righe x {df_clean.shape[1]} colonne...")
+    try:
+        append_dataframe_to_db(df_clean, table_name, engine, chunksize=2000)
+        n = count_rows(engine, table_name)
+        print(f"✅ Refresh completato (fallback). Righe in `{table_name}`: {n}")
+    except Exception:
+        print("❌ Inserimento fallito anche in fallback. Dettagli:")
+        import traceback; traceback.print_exc()
+        raise
 
 if __name__ == "__main__":
     main()
