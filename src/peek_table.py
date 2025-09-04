@@ -1,36 +1,40 @@
+# src/diag_refresh.py
 import os
 from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
 
-from src.data_preprocessing import create_db_engine, test_connection
+from src.data_preprocessing import preprocess_data  # stessa funzione usata dal refresh
 
-# Path .env dalla root del progetto (come fai negli altri script)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = PROJECT_ROOT / ".env"
+CSV_PATH = PROJECT_ROOT / "data" / "diabete_data.csv"  # stesso path del refresh
 
 def main():
-    # 0) ENV
     load_dotenv(ENV_PATH)
-    username = os.getenv("SQL_USERNAME")
-    password = os.getenv("SQL_PASSWORD")
-    host     = os.getenv("SQL_HOST")
-    database = os.getenv("SQL_DATABASE")
-    port     = int(os.getenv("SQL_PORT", 3306))
-    table    = os.getenv("DB_TABLE", "diabetes_data")  # default
+    print(f".env: {ENV_PATH.exists()} | CSV path: {CSV_PATH}")
 
-    # 1) Connessione
-    engine = create_db_engine(username, password, host, port, database)
-    test_connection(engine)
+    if not CSV_PATH.exists():
+        print(f"ERRORE: CSV non trovato a {CSV_PATH}")
+        return
 
-    # 2) Conta righe + anteprima
-    n_rows = int(pd.read_sql_query(f"SELECT COUNT(*) AS n FROM {table}", con=engine)["n"][0])
-    head   = pd.read_sql_query(f"SELECT * FROM {table} LIMIT 5", con=engine)
-    n_cols = head.shape[1]
+    df_raw = pd.read_csv(CSV_PATH)
+    print(f"CSV letto: shape raw = {df_raw.shape}")
+    print("Null per colonna (prime 15):")
+    print(df_raw.isna().sum().sort_values(ascending=False).head(15))
 
-    print(f"Tabella: {table}")
-    print(f"Shape: ({n_rows}, {n_cols})")
-    print(head)
+    df_clean = preprocess_data(df_raw)
+    print(f"shape dopo preprocess = {df_clean.shape}")
+
+    # Se df_clean è vuoto, capiamo perché: quante righe perse per NaN?
+    lost = len(df_raw) - len(df_clean)
+    print(f"Righe perse in preprocess (dropna): {lost}")
+
+    # Quante colonne “continue” (nunique>13) usate nello scaling?
+    import numpy as np
+    num_cols = df_clean.select_dtypes(include=[np.number]).columns.tolist()
+    cont_cols = [c for c in num_cols if df_clean[c].nunique() > 13]
+    print(f"Colonne continue scalate: {len(cont_cols)} -> {cont_cols[:12]}{'...' if len(cont_cols)>12 else ''}")
 
 if __name__ == "__main__":
     main()
