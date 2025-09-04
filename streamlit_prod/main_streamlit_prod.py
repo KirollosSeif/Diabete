@@ -704,9 +704,36 @@ def render_form():
         rec = pd.DataFrame([form_d])  # 1 riga, nessun ID
         try:
             model, model_type, meta = load_best_model()
+            # ---- PREPARA X PER L'INFERENZA ----
+            X = preprocess_for_inference(rec, meta).copy()
 
-            # >>> Allineamento + scaling con scaler.pkl (solo sulle colonne corrette) <<<
-            X = _prepare_X_for_inference(rec, meta, model)
+            # 1) Drop di colonne non di input (se presenti)
+            X = X.drop(columns=[c for c in X.columns if c.lower() in {"id", "diabetes_012", "target", "label"}],
+                    errors="ignore")
+
+            # 2) Allinea l'ordine delle feature se presente in meta
+            feat_order = (meta or {}).get("feature_order") or []
+            if feat_order:
+                # Aggiungi eventuali feature mancanti (riempite a 0)
+                for m in feat_order:
+                    if m not in X.columns:
+                        X[m] = 0
+                X = X.reindex(columns=feat_order, fill_value=0)
+
+            # 3) Applica lo scaler salvato solo alle colonne previste (evitando i warning)
+            sk_meta   = (meta.get("sklearn") or {})
+            bundle    = sk_meta.get("scaler_bundle") or {}
+            scaler    = bundle.get("scaler", None)
+            scale_cols_all = bundle.get("columns", []) or []
+            cols_to_scale  = [c for c in scale_cols_all if c in X.columns]
+
+            if scaler and cols_to_scale:
+                # a) cast a float64 per evitare "incompatible dtype"
+                X.loc[:, cols_to_scale] = X[cols_to_scale].astype("float64")
+                # b) passa una ndarray allo scaler per evitare "fitted without feature names"
+                scaled = scaler.transform(X[cols_to_scale].to_numpy(dtype=float))
+                # c) riassegna (rimane float64)
+                X.loc[:, cols_to_scale] = scaled
 
             cls, prob = predict_with_proba(model, model_type, X)
         except Exception as e:
