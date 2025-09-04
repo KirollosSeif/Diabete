@@ -28,3 +28,4 @@ timestamp,session_id,event_type,HighBP,HighChol,CholCheck,BMI,Smoker,Stroke,Hear
 2025-09-02T10:08:03,08978ac3-f466-4910-aff5-e3805c2f583d,contact_view,0,1,1,27.8,0,0,0,1,0,1,0,0,0,5,0,0,0,1,58,6,5,0,0.5831,Boffalora sopra Ticino,San Carlo (ASST Santi Paolo e Carlo),+39 02 4022.1,"Via Pio II 3, Milano",CUP ambulatoriale: 02 4022 2747; Numero Verde Regionale 800 638 638,Polo sud-ovest Milano
 2025-09-02T10:18:56,08978ac3-f466-4910-aff5-e3805c2f583d,prediction,1,1,0,88.9,1,1,1,0,0,0,1,0,1,1,30,30,1,1,18,2,2,2,0.3929,,,,,,
 2025-09-04T15:38:03,9fd28e8d-30b8-4cba-8633-350ce5352854,prediction,1,1,0,75.6,1,1,1,0,0,0,1,0,1,5,30,30,1,1,18,1,1,0,0.6956,,,,,,
+2025-09-04T16:46:04,c28c4837-473a-4c4e-9718-f61e5a15620f,prediction,1,1,1,58.6,1,1,1,0,0,0,1,0,1,5,29,30,1,0,20,1,1,0,0.5838,,,,,,
