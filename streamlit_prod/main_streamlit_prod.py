@@ -115,7 +115,7 @@ header [data-testid="baseButton-headerNoPadding"]{visibility:hidden}
 
 /* Griglia contatti */
 .contact-grid{ display:grid; grid-template-columns:1fr; gap:1rem; }
-@media (min-width: 780px){ .contact-grid{ grid-template-columns: 1fr 1fr; } }
+@media (min-width: 780px){ .contact-grid{ grid-template-columns: 1 fr 1fr; } }
 
 /* Row azioni centrata */
 .action-center{ display:flex; justify-content:center; gap:1rem; margin:.6rem 0 0; }
@@ -297,7 +297,7 @@ def git_auto_commit_push(file_path: Path, message: str | None = None):
     if code != 0 and ("nothing to commit" in out.lower() or "no changes added to commit" in out.lower()):
         return
     _run_git(["git", "push", "origin", GIT_BRANCH])
-    
+
 def append_log_row(row: dict):
     try:
         LOG_CSV.parent.mkdir(parents=True, exist_ok=True)
@@ -362,17 +362,86 @@ def log_contact_view(comune: str, contact_row: dict):
     append_log_row(row)
 
 # ========== MODEL: PREDIZIONE CON PROB ==========
+
+def _feature_order_from_meta(meta: dict | None, model) -> list[str]:
+    """Recupera l'ordine delle feature usato in training (meta o model)."""
+    feat_order = None
+    if isinstance(meta, dict):
+        feat_order = meta.get("feature_order") or meta.get("feature_names_out")
+    if not feat_order:
+        feat_order = list(getattr(model, "feature_names_in_", []))
+    return list(feat_order) if feat_order else []
+
+def _prepare_X_for_inference(rec: pd.DataFrame, meta: dict | None, model) -> pd.DataFrame:
+    """
+    - Enforce numerico
+    - Reindicizza ESATTAMENTE alle feature viste in training (niente ID/extra)
+    - Impute minime
+    - Applica scaler salvato (solo sulle colonne previste)
+    """
+    X = rec.copy()
+    # numerico
+    for c in X.columns:
+        X[c] = pd.to_numeric(X[c], errors="coerce")
+
+    feat_order = _feature_order_from_meta(meta, model) or list(X.columns)
+    X = X.reindex(columns=feat_order, fill_value=0)
+
+    if X.isna().any().any():
+        impute = (meta or {}).get("impute_values", {}) if isinstance(meta, dict) else {}
+        for c in X.columns:
+            if X[c].isna().any() and c in impute:
+                X[c] = X[c].fillna(impute[c])
+        X = X.fillna(0)
+
+    # Applica scaler se presente
+    try:
+        scaler_path = ((meta or {}).get("sklearn") or {}).get("scaler_path", "")
+        if scaler_path:
+            from joblib import load
+            sp = Path(scaler_path)
+            if not sp.is_absolute():
+                sp = PROJECT_ROOT / sp
+            bundle = load(sp)
+            cols_to_scale = [c for c in bundle.get("cols", []) if c in X.columns]
+            if cols_to_scale:
+                X.loc[:, cols_to_scale] = bundle["scaler"].transform(X[cols_to_scale])
+    except Exception as e:
+        print("[scaler] warning:", e)
+
+    return X
+
 def predict_with_proba(model, model_type: str, X: pd.DataFrame):
+    """
+    Ritorna (label_classe, probabilità_della_label) rispettando model.classes_ (sklearn).
+    """
     if model_type == "sklearn":
+        classes = getattr(model, "classes_", None)
+
         if hasattr(model, "predict_proba"):
-            p = model.predict_proba(X)[0]; c = int(np.argmax(p)); return c, float(p[c])
+            p = model.predict_proba(X)[0]
+            cls_idx = int(np.argmax(p))
+            cls_label = int(classes[cls_idx]) if classes is not None else cls_idx
+            return cls_label, float(p[cls_idx])
+
         if hasattr(model, "decision_function"):
             s = model.decision_function(X)
             if s.ndim == 1:
-                p1 = 1/(1+np.exp(-s[0])); c = int(p1 >= .5); return c, float(p1 if c else 1-p1)
-            p = np.exp(s[0]-np.max(s[0])); p/=p.sum(); c = int(np.argmax(p)); return c, float(p[c])
-        return int(model.predict(X)[0]), 0.50
-    p = model.predict(X, verbose=0)[0]; c = int(np.argmax(p)); return c, float(p[c])
+                p1 = 1/(1+np.exp(-s[0]))
+                cls_label = 1 if p1 >= .5 else 0
+                return int(cls_label), float(p1 if cls_label == 1 else 1-p1)
+            p = np.exp(s[0]-np.max(s[0])); p /= p.sum()
+            cls_idx = int(np.argmax(p))
+            cls_label = int(classes[cls_idx]) if classes is not None else cls_idx
+            return cls_label, float(p[cls_idx])
+
+        pred = model.predict(X)[0]
+        return int(pred), 0.50
+
+    # Keras / altri
+    p = model.predict(X, verbose=0)[0]
+    cls_idx = int(np.argmax(p))
+    return cls_idx, float(p[cls_idx])
 
 # ========== HOME ==========
 def render_home():
@@ -632,24 +701,14 @@ def render_form():
         )
         st.session_state.last_form = form_d
 
-        rec = pd.DataFrame([form_d])
-
+        rec = pd.DataFrame([form_d])  # 1 riga, nessun ID
         try:
             model, model_type, meta = load_best_model()
-            X = preprocess_for_inference(rec, meta)
-            if model_type == "sklearn":
-                if hasattr(model, "predict_proba"):
-                    p = model.predict_proba(X)[0]; cls = int(np.argmax(p)); prob = float(p[cls])
-                elif hasattr(model, "decision_function"):
-                    s = model.decision_function(X)
-                    if s.ndim == 1:
-                        p1 = 1/(1+np.exp(-s[0])); cls = int(p1 >= .5); prob = float(p1 if cls else 1-p1)
-                    else:
-                        p = np.exp(s[0]-np.max(s[0])); p/=p.sum(); cls = int(np.argmax(p)); prob = float(p[cls])
-                else:
-                    cls = int(model.predict(X)[0]); prob = 0.50
-            else:
-                p = model.predict(X, verbose=0)[0]; cls = int(np.argmax(p)); prob = float(p[cls])
+
+            # >>> Allineamento + scaling con scaler.pkl (solo sulle colonne corrette) <<<
+            X = _prepare_X_for_inference(rec, meta, model)
+
+            cls, prob = predict_with_proba(model, model_type, X)
         except Exception as e:
             st.error(f"Errore durante la predizione: {e}")
             return
