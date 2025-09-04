@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from sklearn.model_selection import train_test_split, KFold, cross_val_score
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+from sklearn.utils.class_weight import compute_class_weight
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from sklearn.base import ClassifierMixin
 
@@ -51,43 +52,56 @@ def split_data(df, target_column="Diabetes_012", test_size=0.2, random_state=42)
 # ---------------------------------------------------------------------
 # Modelli candidati + CV
 # ---------------------------------------------------------------------
-def _candidate_models(random_state=42):
+def _candidate_models(random_state=42, class_weight=None):
     models = {
-        "SGDClassifier": SGDClassifier(loss="log_loss", max_iter=1000, tol=1e-3, random_state=random_state),
-        "DecisionTree": DecisionTreeClassifier(random_state=random_state),
-        "RandomForest": RandomForestClassifier(n_estimators=200, random_state=random_state),
-        "KNN": KNeighborsClassifier(),
-        "LogReg": LogisticRegression(max_iter=1000),
+        "SGDClassifier": SGDClassifier(loss="log_loss", max_iter=1000, tol=1e-3,
+                                       random_state=random_state, class_weight=class_weight),
+        "DecisionTree": DecisionTreeClassifier(random_state=random_state,
+                                               class_weight=class_weight),
+        "RandomForest": RandomForestClassifier(n_estimators=200, random_state=random_state,
+                                               class_weight=class_weight),
+        "KNN": KNeighborsClassifier(),  # non supporta class_weight
+        "LogReg": LogisticRegression(max_iter=1000, class_weight=class_weight),
     }
-    # >>> MODIFICA: includi solo se le librerie sono disponibili <<<
     if _HAS_XGB:
         models["XGBoost"] = XGBClassifier(use_label_encoder=False, eval_metric="logloss",
                                           random_state=random_state, verbosity=0, n_estimators=300)
     if _HAS_LGBM:
-        models["LightGBM"] = LGBMClassifier(random_state=random_state, verbosity=-1, n_estimators=300)
+        # LightGBM accetta dict di pesi per classe
+        models["LightGBM"] = LGBMClassifier(random_state=random_state, verbosity=-1,
+                                            n_estimators=300, class_weight=class_weight,
+                                            objective="multiclass", num_class=3)
     return models
+
 
 def evaluate_models_cross_validation(x_train, y_train, n_splits=5, random_state=42):
     """
-    Valuta i modelli in K-Fold (accuracy) e restituisce:
+    Valuta i modelli in Stratified K-Fold (accuracy) e restituisce:
     - dict con accuracy media per modello,
     - best_estimator FITTATO su tutto il train,
     - best_model_name (stringa).
     """
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    # class weights bilanciati
+    classes = np.unique(y_train)
+    weights = compute_class_weight(class_weight="balanced", classes=classes, y=y_train)
+    class_weight = {int(c): float(w) for c, w in zip(classes, weights)}
+
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+
     results = {}
     best_name, best_score = None, -np.inf
 
-    for name, model in _candidate_models(random_state).items():
-        scores = cross_val_score(model, x_train, y_train, cv=kf, scoring="accuracy", n_jobs=-1)
+    for name, model in _candidate_models(random_state, class_weight=class_weight).items():
+        scores = cross_val_score(model, x_train, y_train, cv=skf, scoring="accuracy", n_jobs=-1)
         mean_acc = float(np.mean(scores))
         results[name] = mean_acc
         if mean_acc > best_score:
             best_score, best_name = mean_acc, name
 
-    best_estimator = _candidate_models(random_state)[best_name]
+    best_estimator = _candidate_models(random_state, class_weight=class_weight)[best_name]
     best_estimator.fit(x_train, y_train)
     return results, best_estimator, best_name
+
 
 # ---------------------------------------------------------------------
 # Valutazione test
@@ -117,7 +131,7 @@ def _build_keras(input_dim: int) -> Sequential:
 
 def train_keras_simple(x_train: pd.DataFrame, y_train: pd.Series,
                        x_val: pd.DataFrame, y_val: pd.Series,
-                       max_epochs: int = 50):
+                       max_epochs: int = 50, class_weight=None):
     """
     Allena un MLP 3-classi su dati GIÀ preprocessati (scalati).
     Restituisce (model, val_accuracy) e salva il best checkpoint.
@@ -137,7 +151,8 @@ def train_keras_simple(x_train: pd.DataFrame, y_train: pd.Series,
     ]
 
     model.fit(Xtr, ytr, validation_data=(Xva, yva),
-              epochs=max_epochs, batch_size=64, verbose=0, callbacks=callbacks)
+              epochs=max_epochs, batch_size=64, verbose=0,
+              callbacks=callbacks, class_weight=class_weight)
 
     _, val_acc = model.evaluate(Xva, yva, verbose=0)
     return model, float(val_acc)
