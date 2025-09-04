@@ -363,65 +363,16 @@ def log_contact_view(comune: str, contact_row: dict):
 
 # ========== MODEL: PREDIZIONE CON PROB ==========
 def predict_with_proba(model, model_type: str, X: pd.DataFrame):
-    """
-    Ritorna (label_classe, probabilità_della_label) con mapping corretto usando model.classes_.
-    """
     if model_type == "sklearn":
-        classes = getattr(model, "classes_", None)
-
         if hasattr(model, "predict_proba"):
-            p = model.predict_proba(X)[0]
-            cls_idx = int(np.argmax(p))
-            cls_label = int(classes[cls_idx]) if classes is not None else cls_idx
-            return cls_label, float(p[cls_idx])
-
+            p = model.predict_proba(X)[0]; c = int(np.argmax(p)); return c, float(p[c])
         if hasattr(model, "decision_function"):
             s = model.decision_function(X)
-            # binario: s è 1D → usa sigmoide e soglia 0.5
             if s.ndim == 1:
-                p1 = 1/(1+np.exp(-s[0]))
-                cls_label = 1 if p1 >= .5 else 0
-                return int(cls_label), float(p1 if cls_label == 1 else 1-p1)
-            # multi-classe: softmax
-            p = np.exp(s[0]-np.max(s[0])); p /= p.sum()
-            cls_idx = int(np.argmax(p))
-            cls_label = int(classes[cls_idx]) if classes is not None else cls_idx
-            return cls_label, float(p[cls_idx])
-
-        # fallback: niente proba -> usa predict e prob dummy
-        pred = model.predict(X)[0]
-        return int(pred), 0.50
-
-    # Keras / altri: si assume output in [0..K-1]
-    p = model.predict(X, verbose=0)[0]
-    cls_idx = int(np.argmax(p))
-    return cls_idx, float(p[cls_idx])
-
-# Allineamento feature al training (ordine, tipi, NaN)
-def _align_features_for_inference(X: pd.DataFrame, model, meta: dict | None) -> pd.DataFrame:
-    # 1) ordine colonne dal training
-    feat_order = None
-    if meta and isinstance(meta, dict):
-        feat_order = meta.get("feature_order") or meta.get("feature_names_out")
-    if feat_order is None:
-        feat_order = list(getattr(model, "feature_names_in_", [])) or list(X.columns)
-
-    X = X.reindex(columns=feat_order, fill_value=0)
-
-    # 2) tipi numerici
-    for c in X.columns:
-        X[c] = pd.to_numeric(X[c], errors="coerce")
-
-    # 3) imputazione minima: usa valori salvati nel meta, altrimenti 0
-    if X.isna().any().any():
-        impute = (meta or {}).get("impute_values", {}) if isinstance(meta, dict) else {}
-        for c in X.columns:
-            if X[c].isna().any():
-                if c in impute:
-                    X[c] = X[c].fillna(impute[c])
-        X = X.fillna(0)
-
-    return X
+                p1 = 1/(1+np.exp(-s[0])); c = int(p1 >= .5); return c, float(p1 if c else 1-p1)
+            p = np.exp(s[0]-np.max(s[0])); p/=p.sum(); c = int(np.argmax(p)); return c, float(p[c])
+        return int(model.predict(X)[0]), 0.50
+    p = model.predict(X, verbose=0)[0]; c = int(np.argmax(p)); return c, float(p[c])
 
 # ========== HOME ==========
 def render_home():
@@ -686,18 +637,19 @@ def render_form():
         try:
             model, model_type, meta = load_best_model()
             X = preprocess_for_inference(rec, meta)
-            X = _align_features_for_inference(X, model, meta)
-
-            # Guard-rails: evita input degenerati
-            if X.isna().any().any():
-                st.error(f"NaN nell'input del modello: {X.isna().sum().to_dict()}")
-                return
-            if X.shape[1] == 0:
-                st.error("Nessuna feature dopo il preprocess: controlla preprocess_for_inference/meta.")
-                return
-
-            cls, prob = predict_with_proba(model, model_type, X)
-
+            if model_type == "sklearn":
+                if hasattr(model, "predict_proba"):
+                    p = model.predict_proba(X)[0]; cls = int(np.argmax(p)); prob = float(p[cls])
+                elif hasattr(model, "decision_function"):
+                    s = model.decision_function(X)
+                    if s.ndim == 1:
+                        p1 = 1/(1+np.exp(-s[0])); cls = int(p1 >= .5); prob = float(p1 if cls else 1-p1)
+                    else:
+                        p = np.exp(s[0]-np.max(s[0])); p/=p.sum(); cls = int(np.argmax(p)); prob = float(p[cls])
+                else:
+                    cls = int(model.predict(X)[0]); prob = 0.50
+            else:
+                p = model.predict(X, verbose=0)[0]; cls = int(np.argmax(p)); prob = float(p[cls])
         except Exception as e:
             st.error(f"Errore durante la predizione: {e}")
             return
