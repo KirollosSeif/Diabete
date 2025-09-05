@@ -1,6 +1,6 @@
 {
   "selected": "sklearn",
-  "timestamp": "2025-09-04T22:56:48",
+  "timestamp": "2025-09-05T10:49:59",
   "feature_order": [
     "HighBP",
     "HighChol",
@@ -25,13 +25,13 @@
     "Income"
   ],
   "sklearn": {
-    "name": "XGBoost",
-    "val_acc": 0.8517085909975609,
-    "path": "C:\\Users\\MARTINADICORATO\\Diabete_New\\Diabete\\data\\grid_search_results\\XGBoost_optimized_model.pkl",
+    "name": "RandomForest",
+    "val_acc": 0.8509448372711819,
+    "path": "C:\\Users\\MARTINADICORATO\\Diabete_New\\Diabete\\data\\grid_search_results\\RandomForest_optimized_model.pkl",
     "scaler_path": "C:\\Users\\MARTINADICORATO\\Diabete_New\\Diabete\\data\\grid_search_results\\scaler.pkl"
   },
   "keras": {
-    "val_acc": 0.8486535549163818,
+    "val_acc": 0.8491216897964478,
     "path": "C:\\Users\\MARTINADICORATO\\Diabete_New\\Diabete\\data\\grid_search_results\\best_keras_model.keras"
   }
 }
