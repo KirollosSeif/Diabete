@@ -12,17 +12,6 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 
-# >>> MODIFICA: import opzionali (prima erano obbligatori) <<<
-try:
-    from xgboost import XGBClassifier
-    _HAS_XGB = True
-except Exception:
-    _HAS_XGB = False
-try:
-    from lightgbm import LGBMClassifier
-    _HAS_LGBM = True
-except Exception:
-    _HAS_LGBM = False
 
 from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Dense, Dropout
@@ -63,14 +52,6 @@ def _candidate_models(random_state=42, class_weight=None):
         "KNN": KNeighborsClassifier(),  # non supporta class_weight
         "LogReg": LogisticRegression(max_iter=1000, class_weight=class_weight),
     }
-    if _HAS_XGB:
-        models["XGBoost"] = XGBClassifier(use_label_encoder=False, eval_metric="logloss",
-                                          random_state=random_state, verbosity=0, n_estimators=300)
-    if _HAS_LGBM:
-        # LightGBM accetta dict di pesi per classe
-        models["LightGBM"] = LGBMClassifier(random_state=random_state, verbosity=-1,
-                                            n_estimators=300, class_weight=class_weight,
-                                            objective="multiclass", num_class=3)
     return models
 
 
