@@ -8,16 +8,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 
-# opzionali
-try:
-    from xgboost import XGBClassifier
-except Exception:
-    XGBClassifier = None
 
-try:
-    from lightgbm import LGBMClassifier
-except Exception:
-    LGBMClassifier = None
 
 param_grids = {
     "SGDClassifier": {
@@ -45,18 +36,7 @@ param_grids = {
         "penalty": ["l2", "none"],
         "max_iter": [500, 1000],
         "class_weight": [None, "balanced"],
-    },
-    # Aggiungi queste solo se le librerie sono installate
-    "XGBoost": {
-        "max_depth": [3, 6, 9],
-        "learning_rate": [0.01, 0.1],
-        "n_estimators": [100, 200],
-    } if XGBClassifier is not None else None,
-    "LightGBM": {
-        "num_leaves": [31, 50],
-        "learning_rate": [0.01, 0.1],
-        "n_estimators": [100, 200],
-    } if LGBMClassifier is not None else None,
+    }
 }
 # pulizia voci None (se pacchetti mancanti)
 param_grids = {k: v for k, v in param_grids.items() if v is not None}
