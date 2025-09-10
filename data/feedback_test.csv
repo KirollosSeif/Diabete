@@ -15,3 +15,4 @@ HighBP,HighChol,CholCheck,BMI,Smoker,Stroke,HeartDiseaseorAttack,PhysActivity,Fr
 1,1,1,66.7,1,1,1,0,0,0,1,0,1,5,30,30,1,1,20,1,1,0,0,2025-09-04T13:35:36.432405+00:00,sklearn,LightGBM_optimized_model.pkl
 1,1,1,66.7,1,1,1,0,0,0,1,0,1,5,30,30,1,1,20,1,1,0,2,2025-09-04T13:35:49.727096+00:00,sklearn,LightGBM_optimized_model.pkl
 0,0,0,25.7,0,0,0,0,0,0,0,0,0,3,2,2,0,0,40,4,4,0,0,2025-09-10T15:14:51.022703+00:00,sklearn,RandomForest_optimized_model.pkl
+1,1,1,58.6,1,1,1,0,0,0,1,0,1,5,29,29,1,1,32,4,2,2,2,2025-09-10T15:29:18.060748+00:00,sklearn,RandomForest_optimized_model.pkl
